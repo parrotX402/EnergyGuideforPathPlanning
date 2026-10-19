@@ -1,0 +1,144 @@
+#!/usr/bin/env python3
+import os
+import sys
+import copy
+import numpy as np
+import rospy
+from std_msgs.msg import Float32
+
+# ===== Path setup =====
+sys.path.insert(0, "/home/zhosuiyuan/桌面/src")
+dirPath = os.path.dirname(os.path.realpath(__file__))
+
+# ===== Output dirs/files =====
+reward_dir = os.path.join(dirPath, "reward")
+os.makedirs(reward_dir, exist_ok=True)
+
+# 训练日志 CSV
+train_csv = os.path.join(reward_dir, "train_log_TD3_test.csv")
+if not os.path.exists(train_csv):
+    with open(train_csv, "w") as f:
+        f.write("episode,success,collision,steps,ep_reward,near_mean\n")
+
+# ===== Imports that depend on sys.path =====
+from aapathplanning.environment.environment_sac import Env
+from sac_atten import SAC, action_unnormalized
+from near_infer import NearEnergyModel
+
+# ===== NEAR model (保持你原来的配置) =====
+CKPT_PATH = "/home/zhosuiyuan/桌面/near/isaacgymenvs/learning/motion_ncsn/run/logs/near_run1/checkpoint.pth"
+near_model = NearEnergyModel(CKPT_PATH, device="cpu")
+
+# ===== NEAR reward config =====
+USE_NEAR_REWARD = True
+NEAR_ALPHA = 0.02
+NEAR_SCALE = 500.0
+CLIP_MIN = -1.0
+CLIP_MAX = 1.0
+
+def _normalize_state_for_near(s: np.ndarray) -> np.ndarray:
+    s = s.astype(np.float32, copy=True)
+    s[-1] = s[-1] / 23.0
+    return s
+
+def make_x56(state, next_state) -> np.ndarray:
+    s  = _normalize_state_for_near(np.asarray(state))
+    sp = _normalize_state_for_near(np.asarray(next_state))
+    return np.concatenate([s, sp], axis=0).astype(np.float32)
+
+if __name__ == '__main__':
+    rospy.init_node('main_pasac_test')
+    
+    # ===== Basic config =====
+    action_dim = 2
+    state_dim = 28
+    max_steps = 300
+    num_episodes = 2000  # 补充实验通常跑 100-200 轮即可获得稳定的平均性能
+
+    # ===== Env / Agent =====
+    env = Env(action_dim)
+    agent = SAC(state_dim, action_dim)
+
+    # =======================================================
+    # 新增：精确加载 PA_SAC 文件夹下的 1240 轮模型
+    # =======================================================
+    target_folder = "model_save/PA_SAC"
+    model_prefix = "1240_SAC_pertrans"
+    
+    policy_path = os.path.join(dirPath, target_folder, f"{model_prefix}_policy_net.pth")
+    critic_path = os.path.join(dirPath, target_folder, f"{model_prefix}_value_net.pth")
+
+    if os.path.exists(policy_path) and os.path.exists(critic_path):
+        agent.load_models_by_path(policy_path, critic_path, device="cpu")
+        print(f"✅ [SUCCESS] Loaded T-SAC model: {model_prefix}")
+    else:
+        print(f"❌ [ERROR] Model files NOT found!")
+        print(f"Expected path: {policy_path}")
+        sys.exit(1)
+
+    # 务必注释掉 agent.load_models()，防止默认路径覆盖刚才加载的模型
+    # agent.load_models()
+    # =======================================================
+
+    train_reward = np.empty((0, 3), dtype=float)
+    success_count_total = 0
+
+    for ep in range(num_episodes):
+        state = env.reset()
+        done = False
+        goalflag = False
+        collision_count = 0
+        near_list = []
+        rewards_current_episode = 0.0
+        past_action = np.array([0.0, 0.0], dtype=np.float32)
+
+        for step in range(max_steps):
+            state = np.float32(state)
+
+            # 补充实验建议使用 eval=True 模式，获取最稳定的表现
+            action = agent.select_action(state, eval=True)
+
+            unnorm_action = np.array([
+                action_unnormalized(action[0], 0.3, 0.0),
+                action_unnormalized(action[1], 2.0, -1.0),
+            ], dtype=np.float32)
+
+            next_state, reward, done, goalflag, obstacle_min_range = env.step(unnorm_action, past_action)
+
+            # NEAR shaping
+            near_r = 0.0
+            if USE_NEAR_REWARD and (not done) and (not goalflag):
+                x56 = make_x56(state, next_state)
+                near_r = near_model.shaped_reward(x56, scale=NEAR_SCALE, clip_min=CLIP_MIN, clip_max=CLIP_MAX)
+                reward = reward + NEAR_ALPHA * near_r
+
+            near_list.append(float(near_r))
+            rewards_current_episode += float(reward)
+
+            # 更新状态
+            state = copy.deepcopy(next_state)
+            past_action = copy.deepcopy(unnorm_action)
+
+            if done or goalflag:
+                if goalflag:
+                    success_count_total += 1
+                else:
+                    collision_count = 1
+                break
+
+        # 统计本回合数据
+        near_mean = float(np.mean(near_list)) if len(near_list) > 0 else 0.0
+        ep_steps = step + 1
+
+        print(f"[TEST] Ep={ep} | Success={int(goalflag)} | Steps={ep_steps} | Reward={rewards_current_episode:.2f} | Near_R={near_mean:.3f}")
+
+        # 写入 CSV
+        with open(train_csv, "a") as f:
+            f.write(f"{ep},{int(goalflag)},{int(collision_count)},{ep_steps},{rewards_current_episode:.3f},{near_mean:.3f}\n")
+
+    # 最终测试报告
+    final_success_rate = (success_count_total / num_episodes) * 100
+    print("-" * 30)
+    print(f"🏁 Test Finished!")
+    print(f"Final Success Rate: {final_success_rate:.2f}%")
+    print(f"Log saved to: {train_csv}")

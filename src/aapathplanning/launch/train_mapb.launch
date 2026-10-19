@@ -1,0 +1,35 @@
+<launch>
+  <!-- 用仿真时间 -->
+  <param name="use_sim_time" value="true"/>
+
+  <!-- 设置 TurtleBot3 模型 -->
+  <env name="TURTLEBOT3_MODEL" value="burger"/>
+
+  <!-- 传参（arg 要放在使用之前） -->
+  <arg name="stage" default="4"/>
+  <param name="stage_number" value="$(arg stage)"/>
+
+  <!-- 加载 Gazebo 场景 -->
+  <include file="$(find aapathplanning)/launch/my_stage.launch" />
+
+  <!-- 指定 Python 模块路径 -->
+  <env name="PYTHONPATH" value="$(env PYTHONPATH):$(find aapathplanning)/environment"/>
+
+  <!-- 你的节点 -->
+  <node pkg="aapathplanning" type="main" name="main" output="screen" />
+  <node pkg="aapathplanning" type="combination_obstacle_1" name="combination_obstacle_1" output="screen" />
+  <node pkg="aapathplanning" type="move_slalom2.py" name="move_slalom2"
+      output="screen" required="false" respawn="false" launch-prefix="python3 -u">
+  <param name="model_name" value="Slalom_2"/>
+  <param name="x_min" value="-1.5"/>
+  <param name="x_max" value="-0.5"/>
+  <param name="A" value="0.5"/>
+  <param name="y0" value="0.2"/>
+  <param name="period" value="16.0"/>
+  <param name="rate" value="30"/>
+  <param name="z" value="0.25"/>
+</node>
+
+  <node pkg="aapathplanning" type="combination_obstacle_3" name="combination_obstacle_3" output="screen" />
+  <node pkg="aapathplanning" type="combination_obstacle_4" name="combination_obstacle_4" output="screen" />
+</launch>

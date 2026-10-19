@@ -1,0 +1,5 @@
+tag,episodes,success_rate,collision_rate,avg_steps_success,near_mean
+A_no_near,50,0.920,0.080,26.37,0.000
+B_a002,50,0.960,0.040,26.52,-0.192
+B_a005,50,0.920,0.080,26.35,-0.192
+C_clip05,50,0.980,0.020,25.41,-0.478

@@ -1,0 +1,10 @@
+<launch>
+  <arg name="stage" default="4"/>
+  <param name="stage_number"  value="$(arg stage)"/>
+  <node pkg="aapathplanning" type="main_video" name="main_video" output="screen" />
+  <node pkg="aapathplanning" type="combination_obstacle_1" name="combination_obstacle_1" output="screen" />
+  <node pkg="aapathplanning" type="combination_obstacle_2" name="combination_obstacle_2" output="screen" />
+  <node pkg="aapathplanning" type="combination_obstacle_3" name="combination_obstacle_3" output="screen" />
+  <node pkg="aapathplanning" type="combination_obstacle_4" name="combination_obstacle_4" output="screen" />
+  <include file="$(find turtlebot3_gazebo)/launch/turtlebot3_stage_$(arg stage).launch"/>
+</launch>

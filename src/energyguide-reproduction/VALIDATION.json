@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-19",
+  "scope": "offline energy module reconstruction and integration checks",
+  "unit_tests": {"passed": 11, "failed": 0, "command": "python3 -m unittest discover -s tests -v"},
+  "syntax_check": {"passed": true, "command": "python3 -m compileall -q energyguide examples"},
+  "synthetic_paper4": {
+    "iterations": 8,
+    "purpose": "smoke_test_only",
+    "verification_file": "runs/synthetic_smoke_01/verification.json"
+  },
+  "existing_legacy56": {
+    "input_files": 204,
+    "train_rows": 15525,
+    "heldout_rows": 3439,
+    "iterations": 8,
+    "inference_checked_rows": 16,
+    "inference_finite": true,
+    "parameters_frozen": true,
+    "success_failure_labels": "unavailable",
+    "purpose": "legacy_data_compatibility_only",
+    "run_file": "runs/legacy_data_smoke_01/run.json"
+  },
+  "full_200001_iteration_pretraining": "not_run",
+  "ros_gazebo_navigation": "not_run",
+  "paper_performance_replication": "not_established",
+  "original_files_modified": false
+}

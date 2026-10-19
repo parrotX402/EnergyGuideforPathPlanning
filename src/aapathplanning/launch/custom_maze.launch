@@ -1,0 +1,28 @@
+<launch>
+  <!-- 使用仿真时间 -->
+  <param name="use_sim_time" value="true"/>
+
+  <!-- TurtleBot3 型号 -->
+  <env name="TURTLEBOT3_MODEL" value="burger"/>
+
+  <!-- world 文件路径 -->
+  <arg name="world"
+       default="$(find aapathplanning)/worlds/maze_box.world"/>
+
+  <!-- 启动 Gazebo + TurtleBot3，并加载 world -->
+  <include file="$(find turtlebot3_gazebo)/launch/turtlebot3_empty_world.launch">
+    <arg name="world_name" value="$(arg world)"/>
+  </include>
+
+  <!-- 启动你的训练主节点 -->
+  <node pkg="aapathplanning"
+        type="main"
+        name="main"
+        output="screen"/>
+
+  <!-- 如果你需要其他 obstacle / helper 节点，可以继续加 -->
+  <!--
+  <node pkg="aapathplanning" type="combination_obstacle_1" name="obs1"/>
+  -->
+</launch>
+

@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+
+import rospy
+import time
+from gazebo_msgs.msg import ModelState, ModelStates
+
+class Combination():
+    def __init__(self):
+        self.pub_model = rospy.Publisher('gazebo/set_model_state', ModelState, queue_size=1)
+        self.moving()
+
+    def moving(self):
+        time.sleep(100)
+        state = 0
+        start_x, start_y = -2, 2  # 起始位置
+        mid_x, mid_y = -1, 0  # 第一个目标点
+        goal_x_2, goal_y_2 = 0, 2  # 第二个目标点
+        goal_x_3, goal_y_3 = -2, 2  # 最终返回点
+        linear_speed = 0.005  # 控制障碍物的移动速度
+
+        while not rospy.is_shutdown():
+            model = rospy.wait_for_message('gazebo/model_states', ModelStates)
+            for i in range(len(model.name)):
+                if model.name[i] == 'obstacle_4':
+                    obstacle_4 = ModelState()
+                    obstacle_4.model_name = model.name[i]
+                    obstacle_4.pose = model.pose[i]
+
+                    # 第一步：从 (-2, 2) 移动到 (0, -1) 沿直线运动
+                    if state == 0:
+                        if obstacle_4.pose.position.x < mid_x:
+                            obstacle_4.pose.position.x += linear_speed  # 沿 x 轴正方向移动
+                        if obstacle_4.pose.position.y > mid_y:
+                            obstacle_4.pose.position.y -= linear_speed  # 沿 y 轴负方向移动
+
+                        # 当障碍物接近目标点 (-1, 0) 时，切换状态
+                        if abs(obstacle_4.pose.position.x - mid_x) < 0.05 and abs(obstacle_4.pose.position.y - mid_y) < 0.05:
+                            state = 1  # 切换到下一个目标
+
+                    # 第二步：从 (0, -1) 移动到 (0, 2) 沿直线运动
+                    elif state == 1:
+                        if obstacle_4.pose.position.y < goal_y_2:
+                            obstacle_4.pose.position.y += linear_speed  # 沿 y 轴正方向移动
+
+                        # 当障碍物接近目标点 (0, 2) 时，切换状态
+                        if abs(obstacle_4.pose.position.x - goal_x_2) < 0.05 and abs(obstacle_4.pose.position.y - goal_y_2) < 0.05:
+                            state = 2  # 切换到返回起点
+
+                    # 第三步：从 (0, 2) 返回到 (-2, 2) 沿直线运动
+                    elif state == 2:
+                        if obstacle_4.pose.position.x > goal_x_3:
+                            obstacle_4.pose.position.x -= linear_speed  # 沿 x 轴负方向移动
+
+                        # 当障碍物接近起点时，切换状态回到起点
+                        if abs(obstacle_4.pose.position.x - goal_x_3) < 0.05 and abs(obstacle_4.pose.position.y - goal_y_3) < 0.05:
+                            state = 0  # 回到初始状态，开始循环
+
+                    # 发布障碍物的更新位置
+                    self.pub_model.publish(obstacle_4)
+                    time.sleep(0.1)  # 控制更新频率
+
+def main():
+    rospy.init_node('combination_obstacle_4')
+    try:
+        combination = Combination()
+    except rospy.ROSInterruptException:
+        pass
+
+if __name__ == '__main__':
+    main()

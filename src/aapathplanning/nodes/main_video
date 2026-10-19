@@ -1,0 +1,189 @@
+#!/usr/bin/env python3
+
+import rospy
+import numpy as np
+from geometry_msgs.msg import Twist
+from nav_msgs.msg import Odometry
+import math
+import rospy
+from gazebo_msgs.srv import SpawnModel
+from geometry_msgs.msg import Pose
+
+class PathFollower:
+    def __init__(self, path_file):
+        # 读取路径点文件
+        self.path_points = self.read_path_points(path_file)
+        self.current_goal_index = 0  # 当前目标路径点索引
+        self.robot_pose = None  # 机器人的当前位置
+        self.goal_tolerance = 0.2  # 距离目标点的容忍误差
+        self.angle_tolerance = 0.05  # 允许的角度容忍度（弧度），避免过度调整
+        self.max_linear_speed = 0.8  # 最大线速度
+        self.max_angular_speed = 2.0  # 限制最大角速度，避免过快旋转
+        self.min_linear_speed = 0.2  # 最小线速度，防止机器人完全停下
+        self.cmd_vel_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)  # 发布速度命令
+        rospy.Subscriber('/odom', Odometry, self.odom_callback)  # 订阅 odometry 数据
+        self.rate = rospy.Rate(10)  # 控制频率 10Hz
+        self.prev_angle_diff = 0  # 上一次的角度差，用于微分控制
+
+    def read_path_points(self, path_file):
+        """从指定路径读取文件，并返回坐标列表"""
+        path_points = []
+        with open(path_file, 'r') as file:
+            for line in file:
+                line = line.strip()  # 去除行首行尾的空白符
+                if not line:  # 如果是空行，跳过
+                    continue
+                try:
+                    x, y = map(float, line.split())
+                    path_points.append((x, y))
+                except ValueError:
+                    rospy.logwarn(f"Invalid line in path file: {line}")
+                    continue  # 跳过无法解析的行
+        return path_points
+
+    def odom_callback(self, data):
+        # 获取机器人在 /odom 坐标系中的位置信息
+        position = data.pose.pose.position
+        self.robot_pose = (position.x, position.y)
+
+        # 获取机器人的当前朝向（yaw角度）
+        orientation = data.pose.pose.orientation
+        _, _, self.robot_yaw = self.quaternion_to_euler(orientation.x, orientation.y, orientation.z, orientation.w)
+
+    def quaternion_to_euler(self, x, y, z, w):
+        # 四元数转换为欧拉角，返回roll, pitch, yaw
+        t0 = +2.0 * (w * x + y * z)
+        t1 = +1.0 - 2.0 * (x * x + y * y)
+        roll = math.atan2(t0, t1)
+
+        t2 = +2.0 * (w * y - z * x)
+        t2 = +1.0 if t2 > +1.0 else t2
+        t2 = -1.0 if t2 < -1.0 else t2
+        pitch = math.asin(t2)
+
+        t3 = +2.0 * (w * z + x * y)
+        t4 = +1.0 - 2.0 * (y * y + z * z)
+        yaw = math.atan2(t3, t4)
+
+        return roll, pitch, yaw
+
+    def normalize_angle(self, angle):
+        """将角度归一化到 [-pi, pi] 之间"""
+        while angle > math.pi:
+            angle -= 2.0 * math.pi
+        while angle < -math.pi:
+            angle += 2.0 * math.pi
+        return angle
+
+    def compute_control(self, goal):
+        # 计算机器人当前位置与目标点的距离和角度
+        if self.robot_pose is None:
+            return None
+
+        # 获取当前机器人位置
+        robot_x, robot_y = self.robot_pose
+        goal_x, goal_y = goal
+
+        # 计算目标点的角度
+        angle_to_goal = math.atan2(goal_y - robot_y, goal_x - robot_x)
+
+        # 计算到目标点的距离
+        distance_to_goal = math.sqrt((goal_x - robot_x) ** 2 + (goal_y - robot_y) ** 2)
+
+        # 计算角度差并归一化
+        angle_diff = self.normalize_angle(angle_to_goal - self.robot_yaw)
+
+        return distance_to_goal, angle_diff
+
+    def move_to_goal(self):
+        while not rospy.is_shutdown():
+            if self.current_goal_index >= len(self.path_points):
+                rospy.loginfo("Path completed")
+                twist = Twist()
+                twist.linear.x = 0.0
+                twist.angular.z = 0.0
+                self.cmd_vel_pub.publish(twist)
+                break
+
+            # 当前的目标路径点
+            goal = self.path_points[self.current_goal_index]
+
+            # 计算控制
+            control = self.compute_control(goal)
+            if control is None:
+                continue
+
+            distance_to_goal, angle_diff = control
+
+            # 如果距离目标点足够近，切换到下一个路径点
+            if distance_to_goal < self.goal_tolerance:
+                rospy.loginfo(f"Reached goal {self.current_goal_index + 1}")
+                self.current_goal_index += 1
+                continue
+
+            # 控制速度：根据距离和角度调整线速度和角速度
+            twist = Twist()
+
+            # 根据距离设置线速度（接近目标时逐渐减速）
+            if distance_to_goal < 0.5:
+                twist.linear.x = max(min(0.4* distance_to_goal, 0.3), self.min_linear_speed)  # 逐渐减小线速度
+            else:
+                twist.linear.x = min(0.8 * distance_to_goal, self.max_linear_speed)  # 最大线速度0.2米/秒
+
+            # 如果角度差非常小，设置角速度为零
+            if abs(angle_diff) < self.angle_tolerance:
+                twist.angular.z = 0.0
+            else:
+                # 微分控制：根据当前和上一次的角度差调整角速度，避免过度旋转
+                angle_derivative = angle_diff - self.prev_angle_diff
+                twist.angular.z = max(min(1.5 * angle_diff + 0.1 * angle_derivative, self.max_angular_speed), -self.max_angular_speed)
+                self.prev_angle_diff = angle_diff  # 更新上一次的角度差
+
+            # 发布速度指令
+            self.cmd_vel_pub.publish(twist)
+
+            self.rate.sleep()
+
+def load_sdf_model():
+
+    # 读取 SDF 文件内容
+    model_path = "/home/zyj/catkin_ws/src/turtlebot3_simulations/turtlebot3_gazebo/models/turtlebot3_square/model.sdf"
+    with open(model_path, 'r') as sdf_file:
+        sdf_content = sdf_file.read()
+
+    # 等待服务 /gazebo/spawn_sdf_model 启动
+    rospy.wait_for_service('/gazebo/spawn_sdf_model')
+
+    try:
+        spawn_model_prox = rospy.ServiceProxy('/gazebo/spawn_sdf_model', SpawnModel)
+
+        # 定义模型的位置
+        model_pose = Pose()
+        model_pose.position.x = -4  
+        model_pose.position.y = 4
+        model_pose.position.z = 0.0
+
+        # 调用服务，将模型插入到 Gazebo 世界中
+        spawn_model_prox('goal_box', sdf_content, 'namespace', model_pose, 'world')
+        rospy.loginfo("SDF model successfully loaded into Gazebo.")
+    except rospy.ServiceException as e:
+        rospy.logerr(f"Service call failed: {e}")
+
+
+if __name__ == '__main__':
+    load_sdf_model()
+    try:
+        rospy.init_node('path_follower')
+
+        # 指定路径文件
+        path_file = '/home/zyj/catkin_ws/src/aapathplanning/environment/Test_point/ENV1/p_sac.txt'
+        
+        # 创建路径跟随对象
+        path_follower = PathFollower(path_file)
+        
+        # 开始沿路径移动
+        path_follower.move_to_goal()
+
+        rospy.spin()
+    except rospy.ROSInterruptException:
+        pass

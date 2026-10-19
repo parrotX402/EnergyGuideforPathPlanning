@@ -1,0 +1,91 @@
+from PIL import Image, ImageDraw, ImageFont
+
+# ===== ASCII 图内容 =====
+ascii_art = r"""
+────────────────────────────────────────────────────────────
+                   OFFLINE PHASE
+        (Transition Prior / NEAR Pretraining)
+────────────────────────────────────────────────────────────
+
+   Expert / Near Dataset
+      {(s_t , s_{t+1})}
+              │
+              ▼
+   ┌──────────────────────────┐
+   │  NEAR Energy Model       │
+   │  E_φ(s_t , s_{t+1})      │
+   │  (Energy-Based Network)  │
+   └──────────────────────────┘
+          [Parameters Frozen]
+
+
+────────────────────────────────────────────────────────────
+                    ONLINE PHASE
+            (NEAR-Guided Reinforcement Learning)
+────────────────────────────────────────────────────────────
+
+                a_t
+   ┌──────────────┐ ───────▶ ┌─────────────────────────┐
+   │  SAC Policy  │          │      Environment         │
+   │   π_θ(a|s)   │ ◀─────── │  (Navigation World)     │
+   └──────▲───────┘    s_t   └──────────┬──────────────┘
+          │                              │
+          │                              │ s_{t+1}, r_env, done
+          │                              ▼
+          │                     ┌─────────────────────────┐
+          │                     │   Reward Composition    │
+          │                     │                         │
+          │                     │ r_near = clip(          │
+          │                     │  -E_φ(s_t,s_{t+1})/β )  │
+          │                     │                         │
+          │                     │ r = r_env + α·r_near    │
+          │                     └──────────┬──────────────┘
+          │                                │
+          │                         (s_t , s_{t+1})
+          │                                │
+          │                     ┌──────────▼──────────┐
+          │                     │   NEAR Energy       │
+          │                     │   Model (Frozen)    │
+          │                     └─────────────────────┘
+          │
+          ▼
+   ┌──────────────────────────┐
+   │      Replay Buffer       │
+   │ (s, a, r, s', done)      │
+   └──────────▲──────────────┘
+              │
+              ▼
+   ┌──────────────────────────┐
+   │     SAC Update Step      │
+   │  Actor π_θ / Critic Q_ψ  │
+   └──────────────────────────┘
+"""
+
+# ===== 画布设置 =====
+font_size = 16
+padding = 20
+
+try:
+    font = ImageFont.truetype("DejaVuSansMono.ttf", font_size)
+except:
+    font = ImageFont.load_default()
+
+lines = ascii_art.split("\n")
+max_width = max(len(line) for line in lines)
+
+img_width = max_width * font_size // 1.7 + padding * 2
+img_height = len(lines) * (font_size + 4) + padding * 2
+
+img = Image.new("RGB", (int(img_width), img_height), "white")
+draw = ImageDraw.Draw(img)
+
+y = padding
+for line in lines:
+    draw.text((padding, y), line, fill="black", font=font)
+    y += font_size + 4
+
+# ===== 保存 =====
+out_path = "near_sac_framework_ascii.jpg"
+img.save(out_path, "JPEG", quality=95)
+
+print(f"[OK] Saved ASCII framework to {out_path}")

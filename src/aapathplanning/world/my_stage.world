@@ -1,0 +1,40 @@
+<?xml version='1.0'?>
+<sdf version='1.6'> <world name='default'>
+    <include><uri>model://sun</uri></include>
+    <include><uri>model://ground_plane</uri></include>
+
+    <include>
+      <uri>model://turtlebot3_plaza_complex_custom</uri>
+      <pose>0 0 0 0 0 0</pose>
+    </include>
+
+    <actor name="Slalom_2">
+      <pose>-1.0 0 0.25 0 0 0</pose>
+      <skin>
+        <visual>
+          <geometry><cylinder><radius>0.2</radius><length>0.5</length></cylinder></geometry>
+          <material><ambient>0.2 0.2 0.8 1</ambient><diffuse>0.2 0.2 0.8 1</diffuse></material>
+        </visual>
+      </skin>
+      
+      <link name="link">
+        <visual name="visual">
+          <geometry><cylinder><radius>0.2</radius><length>0.5</length></cylinder></geometry>
+        </visual>
+      </link>
+
+      <script>
+        <loop>true</loop>
+        <auto_start>true</auto_start>
+        <trajectory id="0" type="swing">
+          <waypoint><time>0.0</time><pose>0 0 0 0 0 0</pose></waypoint>
+          <waypoint><time>3.0</time><pose>0 1.2 0 0 0 0</pose></waypoint>
+          <waypoint><time>6.0</time><pose>0 0 0 0 0 0</pose></waypoint>
+          <waypoint><time>9.0</time><pose>0 -1.2 0 0 0 0</pose></waypoint>
+          <waypoint><time>12.0</time><pose>0 0 0 0 0 0</pose></waypoint>
+        </trajectory>
+      </script>
+    </actor>
+
+    </world>
+</sdf>

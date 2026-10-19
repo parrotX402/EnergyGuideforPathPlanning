@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+
+import rospy
+import time
+import math  # 用于计算椭圆轨迹
+from gazebo_msgs.msg import ModelState, ModelStates
+
+class Combination():
+    def __init__(self):
+        self.pub_model = rospy.Publisher('gazebo/set_model_state', ModelState, queue_size=1)
+        self.moving()
+
+    def moving(self):
+        time.sleep(100)
+        # 调整椭圆的中心和长轴短轴半径，确保不会撞到右边的障碍物
+        center_x = 1.5  # 椭圆中心 x 坐标（往左移动，避免碰撞）
+        center_y = 2  # 椭圆中心 y 坐标（保持在 y = 2 处）
+        a = 1.0  # 椭圆的长轴半径（缩小，以远离障碍物）
+        b = 0.6  # 椭圆的短轴半径（缩小以防止靠得太近）
+        angular_speed = 0.01  # 椭圆运动的角速度
+        theta = 0  # 初始化角度
+        
+        while not rospy.is_shutdown():
+            model = rospy.wait_for_message('gazebo/model_states', ModelStates)
+           
+            for i in range(len(model.name)):
+                if model.name[i] == 'obstacle_1':
+                    obstacle_1 = ModelState()
+                    obstacle_1.model_name = model.name[i]
+                    obstacle_1.pose = model.pose[i]
+                    
+                    # 计算椭圆轨迹上的 x 和 y 坐标
+                    obstacle_1.pose.position.x = center_x + a * math.cos(theta)
+                    obstacle_1.pose.position.y = center_y + b * math.sin(theta)
+                    
+                    # 更新角度，确保在椭圆轨迹上移动
+                    theta += angular_speed
+                    if theta > 2 * math.pi:
+                        theta -= 2 * math.pi  # 确保角度在 0 到 2π 之间循环
+                    
+                    # 发布障碍物的位置
+                    self.pub_model.publish(obstacle_1)
+                    time.sleep(0.1)
+
+def main():
+    rospy.init_node('combination_obstacle_1')
+    try:
+        combination = Combination()
+    except rospy.ROSInterruptException:
+        pass
+
+if __name__ == '__main__':
+    main()

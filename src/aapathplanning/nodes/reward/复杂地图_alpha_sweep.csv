@@ -1,0 +1,4 @@
+alpha,episodes,success_rate,collision_rate,avg_steps_success,near_mean
+0.006,20,0.300,0.000,57.33,-0.199
+0.007,20,0.000,0.100,-1.00,-0.200
+0.008,20,0.000,0.050,-1.00,-0.200

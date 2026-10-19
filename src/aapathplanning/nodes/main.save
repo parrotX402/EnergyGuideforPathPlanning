@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+sys.path.append('/home/zhosuiyuan/桌面/src/aapathplanning/environment')
+
+from aapathplanning.environment.environment_sac import Env
+from aapathplanning.environment.environment_sac import Env
+
+import sys
+import os
+import torch
+import rospy
+from std_msgs.msg import Float32
+# 导入环境模块#!/usr/bin/env python3
+import sys
+
+# 让 Python 能找到 aapathplanning 这个包：把 src 加进去
+sys.path.insert(0, "/home/zhosuiyuan/桌面/src")
+
+import rospy
+from std_msgs.msg import Float32
+import torch
+
+from aapathplanning.environment.environment_sac import Env
+
+
+
+# 导入环境类（确保文件和类名正确）
+from aapathplanning.environment.environment_sac import Env
+
+
+
+import numpy as np
+import copy
+
+# 导入 SAC 模块
+from sac_atten import SAC, action_unnormalized
+
+# 获取当前路径
+dirPath = os.path.dirname(os.path.realpath(__file__))
+
+if __name__ == '__main__':
+    rospy.init_node('main')
+    pub_result = rospy.Publisher('result', Float32, queue_size=5)
+    result = Float32()  # 获取消息类型
+    success_count = 0  # 成功次数计数器
+
+    action_dim = 2
+    state_dim = 28
+    max_steps = 600   # 每一轮的步数
+    num_episodes = 100  # 训练回合数
+    past_action = np.array([0., 0.])  # 获得浮点数组[0. 0.]
+    results = []
+
+    train_reward = np.empty((0, 3), np.float)  # 训练奖励
+    test_reward = np.empty((0, 3), np.float)
+
+    # 初始化环境
+    env = Env(action_dim)
+
+    # 初始化 SAC 代理
+    agent = SAC(state_dim, action_dim)
+
+    # 加载预训练模型
+    agent.load_models()
+
+    # 记录最小障碍物距离
+    obstacle_min_range_list = []
+
+    for ep in range(num_episodes):
+        state = env.reset()  # 重置环境，获取初始状态
+        done = False
+        rewards_current_episode = 0  # 每回合奖励初始化
+
+        for step in range(max_steps):
+            state = np.float32(state)  # 确保状态是 float32 类型
+
+            # 每10轮选择最优动作，每次训练选择随机动作
+            if not ep % 10 == 0:
+                action = agent.select_action(state)  # 随机选择动作
+            else:
+                action = agent.select_action(state, eval=True)  # 选择最优动作
+
+            # 动作反归一化处理（将 [-1, 1] 范围的动作恢复为实际的范围）
+            unnorm_action = np.array([action_unnormalized(action[0], 0.3, 0.0),
+                                      action_unnormalized(action[1], 2.0, -1.0)])
+
+            # 执行动作，获取下一个状态和奖励
+            next_state, reward, done, goalflag, obstacle_min_range = env.step(unnorm_action, past_action)
+            obstacle_min_range_list.append(obstacle_min_range)
+
+            # 存储状态转移到经验回放缓冲区
+            transition = (state, action, reward, next_state, done)
+            agent.store_transition(transition)
+
+            # 如果经验回放缓冲区足够大，开始更新 SAC 代理的参数
+            if agent.buffer_size() >= 256:
+                agent.update_parameters(agent.batch_size)
+
+            state = copy.deepcopy(next_state)  # 更新状态
+
+            # 检查是否完成回合
+            if done or goalflag:
+                if goalflag:  # 如果到达目标，增加成功计数
+                    success_count += 1
+                break  # 结束当前回合
+
+        # 每100回合保存一次模型并打印结果
+        if (ep + 1) % 10 == 0:
+            success_rate = (success_count / 10) * 100  # 成功率（百分比）
+            print(f'Success Rate after {ep + 1} episodes: {success_rate}%')
+            success_count = 0  # 重置计数器
+
+        # 保存回合奖励数据
+        train_reward = np.append(train_reward, np.asarray([[ep, rewards_current_episode, step]]), axis=0)
+        np.savetxt(dirPath + '/reward/sac_reward.txt', train_reward)
+
+        # 每次训练后保存模型
+        if ep > 10 and (ep + 1) % 10 == 0:
+            print(f'Saving model at episode {ep + 1}')
+            agent.save_models(ep + 1)
